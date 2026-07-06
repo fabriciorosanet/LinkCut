@@ -1,0 +1,228 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using LinkCut.Web.Models
+@inject LinkCut.Web.Services.ApiClient Api
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>LinkCut - Encurtador de URL</PageTitle>
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="text-center mb-4">
+                <h1 class="display-4">🔗 LinkCut</h1>
+                <p class="lead">fetolino rosa que criou essa aplicação pra vcs encurtar sua URL de forma simples e rápida</p>
+            </div>
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <div class="input-group input-group-lg">
+                        <input type="url"
+                               class="form-control @(erroMsg != null ? "is-invalid" : "")"
+                               placeholder="Cole sua URL aqui..."
+                               @bind="novaUrl"
+                               @bind:event="oninput"
+                               disabled="@carregando" />
+                        <button class="btn btn-primary"
+                                @onclick="CriarUrl"
+                                disabled="@(carregando || string.IsNullOrWhiteSpace(novaUrl))">
+                            @if (carregando)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            Encurtar
+                        </button>
+                    </div>
+                    @if (erroMsg != null)
+                    {
+                        <div class="text-danger mt-2 small">@erroMsg</div>
+                    }
+                </div>
+            </div>
+
+            @if (sucessoMsg != null)
+            {
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <strong>URL encurtada!</strong><br />
+                    <a href="@sucessoMsg" target="_blank" class="alert-link">@sucessoMsg</a>
+                    <button type="button" class="btn btn-sm btn-outline-success ms-2"
+                            @onclick="() => CopiarUrl(sucessoMsg!)">
+                        Copiar
+                    </button>
+                    <button type="button" class="btn-close" @onclick="() => sucessoMsg = null"></button>
+                </div>
+            }
+
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Minhas URLs</h5>
+                    <button class="btn btn-sm btn-outline-secondary"
+                            @onclick="CarregarUrls"
+                            disabled="@carregando">
+                        Atualizar
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    @if (carregandoLista)
+                    {
+                        <div class="text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Carregando...</span>
+                            </div>
+                        </div>
+                    }
+                    else if (urls.Count == 0)
+                    {
+                        <div class="text-center p-4 text-muted">
+                            Nenhuma URL encurtada ainda.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>URL Original</th>
+                                        <th>URL Curta</th>
+                                        <th class="text-center">Cliques</th>
+                                        <th class="text-center">Acao</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var url in urls)
+                                    {
+                                        <tr>
+                                            <td class="text-truncate" style="max-width: 250px;" title="@url.OriginalUrl">
+                                                <a href="@url.OriginalUrl" target="_blank" rel="noopener">@url.OriginalUrl</a>
+                                            </td>
+                                            <td>
+                                                <a href="@url.ShortUrl" target="_blank">@url.ShortUrl</a>
+                                            </td>
+                                            <td class="text-center">
+                                                <span class="badge bg-info">@url.ClickCount</span>
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-sm btn-outline-primary"
+                                                        @onclick="() => CopiarUrl(url.ShortUrl)">
+                                                    Copiar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (copiado)
+{
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+        <div class="toast show align-items-center text-bg-success border-0">
+            <div class="d-flex">
+                <div class="toast-body">URL copiada!</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        @onclick="() => copiado = false"></button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ShortenedUrlResponse> urls = new();
+    private string? novaUrl;
+    private string? erroMsg;
+    private string? sucessoMsg;
+    private bool carregando;
+    private bool carregandoLista;
+    private bool copiado;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CarregarUrls();
+
+        _timer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                try
+                {
+                    urls = await Api.GetAllAsync();
+                    StateHasChanged();
+                }
+                catch { }
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task CarregarUrls()
+    {
+        carregandoLista = true;
+        try
+        {
+            urls = await Api.GetAllAsync();
+        }
+        catch
+        {
+            erroMsg = "Erro ao carregar URLs. Verifique se a API esta rodando.";
+        }
+        finally
+        {
+            carregandoLista = false;
+        }
+    }
+
+    private async Task CriarUrl()
+    {
+        if (string.IsNullOrWhiteSpace(novaUrl)) return;
+
+        carregando = true;
+        erroMsg = null;
+        sucessoMsg = null;
+
+        try
+        {
+            var result = await Api.CreateAsync(novaUrl);
+            if (result != null)
+            {
+                sucessoMsg = result.ShortUrl;
+                novaUrl = string.Empty;
+                urls.Insert(0, result);
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            erroMsg = "URL invalida. Use http:// ou https://";
+        }
+        catch
+        {
+            erroMsg = "Erro ao encurtar URL. Verifique a API.";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private async Task CopiarUrl(string url)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+        copiado = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        copiado = false;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

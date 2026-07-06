@@ -57,5 +57,5 @@ Thumbs.db
 # App settings (local development)
 appsettings.Development.json
 
-# wwwroot build artifacts (if using frontend build tools)
+# wwwroot build artifacts
 wwwroot/dist/
